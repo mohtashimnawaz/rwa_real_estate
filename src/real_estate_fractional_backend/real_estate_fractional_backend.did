@@ -13,4 +13,7 @@ service : {
     shares_available : nat64;
   });
   get_ownership : (nat64, text) -> (nat64);
+  deposit_rental_income : (nat64, nat64) -> (variant { Ok : text; Err : text });
+  claim_income : (nat64, text) -> (nat64);
+  get_unclaimed_income : (nat64, text) -> (nat64);
 }

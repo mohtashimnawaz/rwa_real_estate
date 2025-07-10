@@ -20,6 +20,8 @@ thread_local! {
     static PROPERTIES: RefCell<HashMap<PropertyId, Property>> = RefCell::new(HashMap::new());
     static OWNERSHIP: RefCell<HashMap<(PropertyId, UserId), u64>> = RefCell::new(HashMap::new());
     static NEXT_PROPERTY_ID: RefCell<PropertyId> = RefCell::new(1);
+    static RENTAL_INCOME: RefCell<HashMap<PropertyId, u64>> = RefCell::new(HashMap::new()); // total deposited
+    static UNCLAIMED_INCOME: RefCell<HashMap<(PropertyId, UserId), u64>> = RefCell::new(HashMap::new()); // per user
 }
 
 #[update]
@@ -76,4 +78,55 @@ pub fn get_property(property_id: PropertyId) -> Option<Property> {
 #[query]
 pub fn get_ownership(property_id: PropertyId, user: UserId) -> u64 {
     OWNERSHIP.with(|own| own.borrow().get(&(property_id, user)).cloned().unwrap_or(0))
+}
+
+/// Admin deposits rental income for a property. Distributes to all current owners proportionally.
+#[update]
+pub fn deposit_rental_income(property_id: PropertyId, amount: u64) -> Result<String, String> {
+    // Track total income
+    RENTAL_INCOME.with(|ri| {
+        let mut ri = ri.borrow_mut();
+        *ri.entry(property_id).or_insert(0) += amount;
+    });
+    // Distribute to owners
+    let mut total_shares = 0;
+    PROPERTIES.with(|props| {
+        if let Some(prop) = props.borrow().get(&property_id) {
+            total_shares = prop.total_shares;
+        }
+    });
+    if total_shares == 0 {
+        return Err("Property not found or has no shares".to_string());
+    }
+    // Find all owners
+    OWNERSHIP.with(|own| {
+        let own = own.borrow();
+        for ((pid, user), shares) in own.iter() {
+            if *pid == property_id && *shares > 0 {
+                let user_income = amount * shares / total_shares;
+                UNCLAIMED_INCOME.with(|ui| {
+                    let mut ui = ui.borrow_mut();
+                    *ui.entry((property_id, user.clone())).or_insert(0) += user_income;
+                });
+            }
+        }
+    });
+    Ok("Rental income distributed".to_string())
+}
+
+/// User claims their unclaimed rental income for a property.
+#[update]
+pub fn claim_income(property_id: PropertyId, user: UserId) -> u64 {
+    let mut claimed = 0;
+    UNCLAIMED_INCOME.with(|ui| {
+        let mut ui = ui.borrow_mut();
+        claimed = ui.remove(&(property_id, user)).unwrap_or(0);
+    });
+    claimed
+}
+
+/// Query unclaimed rental income for a user and property.
+#[query]
+pub fn get_unclaimed_income(property_id: PropertyId, user: UserId) -> u64 {
+    UNCLAIMED_INCOME.with(|ui| ui.borrow().get(&(property_id, user)).cloned().unwrap_or(0))
 }
