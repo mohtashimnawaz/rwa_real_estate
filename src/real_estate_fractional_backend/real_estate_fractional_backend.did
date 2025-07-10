@@ -1,3 +1,10 @@
+type Listing = record {
+  property_id : nat64;
+  seller : text;
+  amount : nat64;
+  price_per_share : nat64;
+};
+
 service : {
   register_property : (text, nat64) -> (record {
     id : nat64;
@@ -16,4 +23,8 @@ service : {
   deposit_rental_income : (nat64, nat64) -> (variant { Ok : text; Err : text });
   claim_income : (nat64, text) -> (nat64);
   get_unclaimed_income : (nat64, text) -> (nat64);
+  list_shares_for_sale : (nat64, text, nat64, nat64) -> (variant { Ok : text; Err : text });
+  buy_shares : (nat64, text, text, nat64) -> (variant { Ok : text; Err : text });
+  transfer_shares : (nat64, text, text, nat64) -> (variant { Ok : text; Err : text });
+  get_marketplace_listings : () -> (vec Listing) query;
 }

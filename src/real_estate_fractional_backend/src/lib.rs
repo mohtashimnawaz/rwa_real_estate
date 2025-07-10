@@ -16,12 +16,21 @@ pub struct Property {
     pub shares_available: u64,
 }
 
+#[derive(CandidType, Deserialize, Clone)]
+pub struct Listing {
+    pub property_id: PropertyId,
+    pub seller: UserId,
+    pub amount: u64,
+    pub price_per_share: u64,
+}
+
 thread_local! {
     static PROPERTIES: RefCell<HashMap<PropertyId, Property>> = RefCell::new(HashMap::new());
     static OWNERSHIP: RefCell<HashMap<(PropertyId, UserId), u64>> = RefCell::new(HashMap::new());
     static NEXT_PROPERTY_ID: RefCell<PropertyId> = RefCell::new(1);
     static RENTAL_INCOME: RefCell<HashMap<PropertyId, u64>> = RefCell::new(HashMap::new()); // total deposited
     static UNCLAIMED_INCOME: RefCell<HashMap<(PropertyId, UserId), u64>> = RefCell::new(HashMap::new()); // per user
+    static MARKETPLACE: RefCell<Vec<Listing>> = RefCell::new(Vec::new());
 }
 
 #[update]
@@ -129,4 +138,81 @@ pub fn claim_income(property_id: PropertyId, user: UserId) -> u64 {
 #[query]
 pub fn get_unclaimed_income(property_id: PropertyId, user: UserId) -> u64 {
     UNCLAIMED_INCOME.with(|ui| ui.borrow().get(&(property_id, user)).cloned().unwrap_or(0))
+}
+
+/// List shares for sale on the marketplace
+#[update]
+pub fn list_shares_for_sale(property_id: PropertyId, seller: UserId, amount: u64, price_per_share: u64) -> Result<String, String> {
+    // Check seller owns enough shares
+    let owned = OWNERSHIP.with(|own| own.borrow().get(&(property_id, seller.clone())).cloned().unwrap_or(0));
+    if owned < amount {
+        return Err("Not enough shares to list".to_string());
+    }
+    // Add listing
+    MARKETPLACE.with(|mp| {
+        mp.borrow_mut().push(Listing {
+            property_id,
+            seller,
+            amount,
+            price_per_share,
+        });
+    });
+    Ok("Shares listed for sale".to_string())
+}
+
+/// Buy shares from the marketplace
+#[update]
+pub fn buy_shares(property_id: PropertyId, seller: UserId, buyer: UserId, amount: u64) -> Result<String, String> {
+    let mut found = false;
+    MARKETPLACE.with(|mp| {
+        let mut mp = mp.borrow_mut();
+        if let Some(pos) = mp.iter().position(|l| l.property_id == property_id && l.seller == seller && l.amount >= amount) {
+            let price_per_share = mp[pos].price_per_share;
+            // Transfer shares
+            OWNERSHIP.with(|own| {
+                let mut own = own.borrow_mut();
+                // Remove from seller
+                let seller_shares = own.entry((property_id, seller.clone())).or_insert(0);
+                if *seller_shares < amount {
+                    return;
+                }
+                *seller_shares -= amount;
+                // Add to buyer
+                *own.entry((property_id, buyer.clone())).or_insert(0) += amount;
+            });
+            // Reduce or remove listing
+            if mp[pos].amount == amount {
+                mp.remove(pos);
+            } else {
+                mp[pos].amount -= amount;
+            }
+            found = true;
+        }
+    });
+    if found {
+        Ok("Shares bought successfully".to_string())
+    } else {
+        Err("Listing not found or insufficient shares".to_string())
+    }
+}
+
+/// Transfer shares directly between users
+#[update]
+pub fn transfer_shares(property_id: PropertyId, from: UserId, to: UserId, amount: u64) -> Result<String, String> {
+    OWNERSHIP.with(|own| {
+        let mut own = own.borrow_mut();
+        let from_shares = own.entry((property_id, from.clone())).or_insert(0);
+        if *from_shares < amount {
+            return Err("Not enough shares to transfer".to_string());
+        }
+        *from_shares -= amount;
+        *own.entry((property_id, to.clone())).or_insert(0) += amount;
+        Ok("Shares transferred".to_string())
+    })
+}
+
+/// Get all marketplace listings
+#[query]
+pub fn get_marketplace_listings() -> Vec<Listing> {
+    MARKETPLACE.with(|mp| mp.borrow().clone())
 }
