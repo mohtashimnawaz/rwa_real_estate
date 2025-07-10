@@ -11,27 +11,30 @@ type Property = record {
   metadata : PropertyMetadata;
   status : PropertyStatus;
 };
-
 type Listing = record {
   property_id : nat64;
-  seller : text;
+  seller : principal;
   amount : nat64;
   price_per_share : nat64;
 };
+type Role = variant { Admin; Manager; User; };
 
 service : {
   register_property : (text, nat64, PropertyMetadata) -> (Property);
-  update_property_metadata : (nat64, PropertyMetadata, text) -> (variant { Ok : text; Err : text });
-  update_property_status : (nat64, PropertyStatus, text) -> (variant { Ok : text; Err : text });
-  set_admin : (text, text) -> (variant { Ok : text; Err : text });
-  issue_shares : (nat64, text, nat64) -> (variant { Ok : text; Err : text });
-  get_property : (nat64) -> (opt Property);
-  get_ownership : (nat64, text) -> (nat64);
+  update_property_metadata : (nat64, PropertyMetadata, principal) -> (variant { Ok : text; Err : text });
+  update_property_status : (nat64, PropertyStatus, principal) -> (variant { Ok : text; Err : text });
+  set_kyc_status : (principal, bool) -> (variant { Ok : text; Err : text });
+  is_my_kyc_verified : () -> (bool) query;
+  set_role : (principal, Role) -> (variant { Ok : text; Err : text });
+  get_my_role : () -> (Role) query;
+  issue_shares : (nat64, principal, nat64) -> (variant { Ok : text; Err : text });
+  get_property : (nat64) -> (opt Property) query;
+  get_ownership : (nat64, principal) -> (nat64) query;
   deposit_rental_income : (nat64, nat64) -> (variant { Ok : text; Err : text });
-  claim_income : (nat64, text) -> (nat64);
-  get_unclaimed_income : (nat64, text) -> (nat64);
-  list_shares_for_sale : (nat64, text, nat64, nat64) -> (variant { Ok : text; Err : text });
-  buy_shares : (nat64, text, text, nat64) -> (variant { Ok : text; Err : text });
-  transfer_shares : (nat64, text, text, nat64) -> (variant { Ok : text; Err : text });
+  claim_income : (nat64, principal) -> (nat64);
+  get_unclaimed_income : (nat64, principal) -> (nat64) query;
+  list_shares_for_sale : (nat64, principal, nat64, nat64) -> (variant { Ok : text; Err : text });
+  buy_shares : (nat64, principal, principal, nat64) -> (variant { Ok : text; Err : text });
+  transfer_shares : (nat64, principal, principal, nat64) -> (variant { Ok : text; Err : text });
   get_marketplace_listings : () -> (vec Listing) query;
 }

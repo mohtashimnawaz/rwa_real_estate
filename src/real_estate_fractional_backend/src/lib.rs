@@ -1,6 +1,5 @@
-use candid::{CandidType, Deserialize};
+use candid::{CandidType, Deserialize, Principal};
 use ic_cdk::api::caller;
-use ic_cdk::export::Principal;
 use ic_cdk::query;
 use ic_cdk::update;
 use std::collections::HashMap;
@@ -36,9 +35,17 @@ pub struct Property {
 #[derive(CandidType, Deserialize, Clone)]
 pub struct Listing {
     pub property_id: PropertyId,
-    pub seller: UserId,
+    pub seller: Principal,
     pub amount: u64,
     pub price_per_share: u64,
+}
+
+// Ensure PropertyStatus is defined at the top level
+#[derive(CandidType, Deserialize, Clone, PartialEq)]
+pub enum PropertyStatus {
+    Active,
+    Maintenance,
+    Sold,
 }
 
 thread_local! {
@@ -96,8 +103,8 @@ pub fn is_my_kyc_verified() -> bool {
 }
 
 #[update]
-pub fn update_property_metadata(property_id: PropertyId, metadata: PropertyMetadata, caller: UserId) -> Result<String, String> {
-    if get_role(&caller().into()) != Role::Admin {
+pub fn update_property_metadata(property_id: PropertyId, metadata: PropertyMetadata, caller: Principal) -> Result<String, String> {
+    if get_role(&caller) != Role::Admin {
         return Err("Only admin can update property metadata".to_string());
     }
     PROPERTIES.with(|props| {
@@ -112,8 +119,8 @@ pub fn update_property_metadata(property_id: PropertyId, metadata: PropertyMetad
 }
 
 #[update]
-pub fn update_property_status(property_id: PropertyId, status: PropertyStatus, caller: UserId) -> Result<String, String> {
-    if get_role(&caller().into()) != Role::Admin {
+pub fn update_property_status(property_id: PropertyId, status: PropertyStatus, caller: Principal) -> Result<String, String> {
+    if get_role(&caller) != Role::Admin {
         return Err("Only admin can update property status".to_string());
     }
     PROPERTIES.with(|props| {
@@ -153,7 +160,7 @@ pub fn register_property(name: String, total_shares: u64, metadata: PropertyMeta
 }
 
 #[update]
-pub fn issue_shares(property_id: PropertyId, to: UserId, amount: u64) -> Result<String, String> {
+pub fn issue_shares(property_id: PropertyId, to: Principal, amount: u64) -> Result<String, String> {
     // Check property exists and has enough shares
     let mut success = false;
     PROPERTIES.with(|props| {
@@ -163,7 +170,7 @@ pub fn issue_shares(property_id: PropertyId, to: UserId, amount: u64) -> Result<
                 prop.shares_available -= amount;
                 OWNERSHIP.with(|own| {
                     let mut own = own.borrow_mut();
-                    *own.entry((property_id, to.into())).or_insert(0) += amount;
+                    *own.entry((property_id, to)).or_insert(0) += amount;
                 });
                 success = true;
             }
@@ -182,8 +189,8 @@ pub fn get_property(property_id: PropertyId) -> Option<Property> {
 }
 
 #[query]
-pub fn get_ownership(property_id: PropertyId, user: UserId) -> u64 {
-    OWNERSHIP.with(|own| own.borrow().get(&(property_id, user.into())).cloned().unwrap_or(0))
+pub fn get_ownership(property_id: PropertyId, user: Principal) -> u64 {
+    OWNERSHIP.with(|own| own.borrow().get(&(property_id, user)).cloned().unwrap_or(0))
 }
 
 /// Admin deposits rental income for a property. Distributes to all current owners proportionally.
@@ -222,26 +229,26 @@ pub fn deposit_rental_income(property_id: PropertyId, amount: u64) -> Result<Str
 
 /// User claims their unclaimed rental income for a property.
 #[update]
-pub fn claim_income(property_id: PropertyId, user: UserId) -> u64 {
+pub fn claim_income(property_id: PropertyId, user: Principal) -> u64 {
     let mut claimed = 0;
     UNCLAIMED_INCOME.with(|ui| {
         let mut ui = ui.borrow_mut();
-        claimed = ui.remove(&(property_id, user.into())).unwrap_or(0);
+        claimed = ui.remove(&(property_id, user)).unwrap_or(0);
     });
     claimed
 }
 
 /// Query unclaimed rental income for a user and property.
 #[query]
-pub fn get_unclaimed_income(property_id: PropertyId, user: UserId) -> u64 {
-    UNCLAIMED_INCOME.with(|ui| ui.borrow().get(&(property_id, user.into())).cloned().unwrap_or(0))
+pub fn get_unclaimed_income(property_id: PropertyId, user: Principal) -> u64 {
+    UNCLAIMED_INCOME.with(|ui| ui.borrow().get(&(property_id, user)).cloned().unwrap_or(0))
 }
 
 /// List shares for sale on the marketplace
 #[update]
-pub fn list_shares_for_sale(property_id: PropertyId, seller: UserId, amount: u64, price_per_share: u64) -> Result<String, String> {
+pub fn list_shares_for_sale(property_id: PropertyId, seller: Principal, amount: u64, price_per_share: u64) -> Result<String, String> {
     // Check seller owns enough shares
-    let owned = OWNERSHIP.with(|own| own.borrow().get(&(property_id, seller.into())).cloned().unwrap_or(0));
+    let owned = OWNERSHIP.with(|own| own.borrow().get(&(property_id, seller)).cloned().unwrap_or(0));
     if owned < amount {
         return Err("Not enough shares to list".to_string());
     }
@@ -259,7 +266,7 @@ pub fn list_shares_for_sale(property_id: PropertyId, seller: UserId, amount: u64
 
 /// Buy shares from the marketplace
 #[update]
-pub fn buy_shares(property_id: PropertyId, seller: UserId, buyer: UserId, amount: u64) -> Result<String, String> {
+pub fn buy_shares(property_id: PropertyId, seller: Principal, buyer: Principal, amount: u64) -> Result<String, String> {
     let mut found = false;
     MARKETPLACE.with(|mp| {
         let mut mp = mp.borrow_mut();
@@ -269,13 +276,13 @@ pub fn buy_shares(property_id: PropertyId, seller: UserId, buyer: UserId, amount
             OWNERSHIP.with(|own| {
                 let mut own = own.borrow_mut();
                 // Remove from seller
-                let seller_shares = own.entry((property_id, seller.into())).or_insert(0);
+                let seller_shares = own.entry((property_id, seller)).or_insert(0);
                 if *seller_shares < amount {
                     return;
                 }
                 *seller_shares -= amount;
                 // Add to buyer
-                *own.entry((property_id, buyer.into())).or_insert(0) += amount;
+                *own.entry((property_id, buyer)).or_insert(0) += amount;
             });
             // Reduce or remove listing
             if mp[pos].amount == amount {
@@ -295,15 +302,15 @@ pub fn buy_shares(property_id: PropertyId, seller: UserId, buyer: UserId, amount
 
 /// Transfer shares directly between users
 #[update]
-pub fn transfer_shares(property_id: PropertyId, from: UserId, to: UserId, amount: u64) -> Result<String, String> {
+pub fn transfer_shares(property_id: PropertyId, from: Principal, to: Principal, amount: u64) -> Result<String, String> {
     OWNERSHIP.with(|own| {
         let mut own = own.borrow_mut();
-        let from_shares = own.entry((property_id, from.into())).or_insert(0);
+        let from_shares = own.entry((property_id, from)).or_insert(0);
         if *from_shares < amount {
             return Err("Not enough shares to transfer".to_string());
         }
         *from_shares -= amount;
-        *own.entry((property_id, to.into())).or_insert(0) += amount;
+        *own.entry((property_id, to)).or_insert(0) += amount;
         Ok("Shares transferred".to_string())
     })
 }
