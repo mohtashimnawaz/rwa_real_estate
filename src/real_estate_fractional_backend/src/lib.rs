@@ -8,12 +8,27 @@ use std::cell::RefCell;
 pub type PropertyId = u64;
 pub type UserId = String; // For now, use Principal as String
 
+#[derive(CandidType, Deserialize, Clone, PartialEq)]
+pub enum PropertyStatus {
+    Active,
+    Maintenance,
+    Sold,
+}
+
+#[derive(CandidType, Deserialize, Clone)]
+pub struct PropertyMetadata {
+    pub location: String,
+    pub description: String,
+}
+
 #[derive(CandidType, Deserialize, Clone)]
 pub struct Property {
     pub id: PropertyId,
     pub name: String,
     pub total_shares: u64,
     pub shares_available: u64,
+    pub metadata: PropertyMetadata,
+    pub status: PropertyStatus,
 }
 
 #[derive(CandidType, Deserialize, Clone)]
@@ -31,10 +46,62 @@ thread_local! {
     static RENTAL_INCOME: RefCell<HashMap<PropertyId, u64>> = RefCell::new(HashMap::new()); // total deposited
     static UNCLAIMED_INCOME: RefCell<HashMap<(PropertyId, UserId), u64>> = RefCell::new(HashMap::new()); // per user
     static MARKETPLACE: RefCell<Vec<Listing>> = RefCell::new(Vec::new());
+    static ADMINS: RefCell<Vec<UserId>> = RefCell::new(vec!["admin".to_string()]);
+}
+
+fn is_admin(user: &UserId) -> bool {
+    ADMINS.with(|admins| admins.borrow().contains(user))
 }
 
 #[update]
-pub fn register_property(name: String, total_shares: u64) -> Property {
+pub fn set_admin(user: UserId, caller: UserId) -> Result<String, String> {
+    if !is_admin(&caller) {
+        return Err("Only admin can add another admin".to_string());
+    }
+    ADMINS.with(|admins| {
+        let mut admins = admins.borrow_mut();
+        if !admins.contains(&user) {
+            admins.push(user);
+        }
+    });
+    Ok("Admin added".to_string())
+}
+
+#[update]
+pub fn update_property_metadata(property_id: PropertyId, metadata: PropertyMetadata, caller: UserId) -> Result<String, String> {
+    if !is_admin(&caller) {
+        return Err("Only admin can update property metadata".to_string());
+    }
+    PROPERTIES.with(|props| {
+        let mut props = props.borrow_mut();
+        if let Some(prop) = props.get_mut(&property_id) {
+            prop.metadata = metadata;
+            Ok("Property metadata updated".to_string())
+        } else {
+            Err("Property not found".to_string())
+        }
+    })
+}
+
+#[update]
+pub fn update_property_status(property_id: PropertyId, status: PropertyStatus, caller: UserId) -> Result<String, String> {
+    if !is_admin(&caller) {
+        return Err("Only admin can update property status".to_string());
+    }
+    PROPERTIES.with(|props| {
+        let mut props = props.borrow_mut();
+        if let Some(prop) = props.get_mut(&property_id) {
+            prop.status = status;
+            Ok("Property status updated".to_string())
+        } else {
+            Err("Property not found".to_string())
+        }
+    })
+}
+
+// Update register_property to include metadata and status
+#[update]
+pub fn register_property(name: String, total_shares: u64, metadata: PropertyMetadata) -> Property {
     let property = PROPERTIES.with(|props| {
         let mut props = props.borrow_mut();
         let id = NEXT_PROPERTY_ID.with(|id| {
@@ -48,6 +115,8 @@ pub fn register_property(name: String, total_shares: u64) -> Property {
             name,
             total_shares,
             shares_available: total_shares,
+            metadata,
+            status: PropertyStatus::Active,
         };
         props.insert(id, property.clone());
         property

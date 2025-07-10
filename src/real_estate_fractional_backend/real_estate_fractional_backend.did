@@ -1,3 +1,17 @@
+type PropertyStatus = variant { Active; Maintenance; Sold; };
+type PropertyMetadata = record {
+  location : text;
+  description : text;
+};
+type Property = record {
+  id : nat64;
+  name : text;
+  total_shares : nat64;
+  shares_available : nat64;
+  metadata : PropertyMetadata;
+  status : PropertyStatus;
+};
+
 type Listing = record {
   property_id : nat64;
   seller : text;
@@ -6,19 +20,12 @@ type Listing = record {
 };
 
 service : {
-  register_property : (text, nat64) -> (record {
-    id : nat64;
-    name : text;
-    total_shares : nat64;
-    shares_available : nat64;
-  });
+  register_property : (text, nat64, PropertyMetadata) -> (Property);
+  update_property_metadata : (nat64, PropertyMetadata, text) -> (variant { Ok : text; Err : text });
+  update_property_status : (nat64, PropertyStatus, text) -> (variant { Ok : text; Err : text });
+  set_admin : (text, text) -> (variant { Ok : text; Err : text });
   issue_shares : (nat64, text, nat64) -> (variant { Ok : text; Err : text });
-  get_property : (nat64) -> (opt record {
-    id : nat64;
-    name : text;
-    total_shares : nat64;
-    shares_available : nat64;
-  });
+  get_property : (nat64) -> (opt Property);
   get_ownership : (nat64, text) -> (nat64);
   deposit_rental_income : (nat64, nat64) -> (variant { Ok : text; Err : text });
   claim_income : (nat64, text) -> (nat64);
