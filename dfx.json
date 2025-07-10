@@ -1,0 +1,27 @@
+{
+  "canisters": {
+    "real_estate_fractional_backend": {
+      "candid": "src/real_estate_fractional_backend/real_estate_fractional_backend.did",
+      "package": "real_estate_fractional_backend",
+      "type": "rust"
+    },
+    "real_estate_fractional_frontend": {
+      "dependencies": [
+        "real_estate_fractional_backend"
+      ],
+      "source": [
+        "src/real_estate_fractional_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "real_estate_fractional_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
