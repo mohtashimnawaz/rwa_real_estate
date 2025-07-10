@@ -3,6 +3,17 @@ type PropertyMetadata = record {
   location : text;
   description : text;
 };
+type ProposalStatus = variant { Open; Approved; Rejected; Executed; };
+type Proposal = record {
+  id : nat64;
+  property_id : nat64;
+  proposer : principal;
+  description : text;
+  status : ProposalStatus;
+  yes_votes : nat64;
+  no_votes : nat64;
+  votes : vec record { principal; bool };
+};
 type Property = record {
   id : nat64;
   name : text;
@@ -38,4 +49,8 @@ service : {
   buy_shares : (nat64, principal, principal, nat64) -> (variant { Ok : text; Err : text });
   transfer_shares : (nat64, principal, principal, nat64) -> (variant { Ok : text; Err : text });
   get_marketplace_listings : () -> (vec Listing) query;
+  submit_proposal : (nat64, text) -> (Proposal);
+  vote_on_proposal : (nat64, bool) -> (variant { Ok : text; Err : text });
+  execute_proposal : (nat64) -> (variant { Ok : text; Err : text });
+  get_proposals : (nat64) -> (vec Proposal) query;
 }

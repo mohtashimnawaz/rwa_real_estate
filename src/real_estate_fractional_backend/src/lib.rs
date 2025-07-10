@@ -48,6 +48,26 @@ pub enum PropertyStatus {
     Sold,
 }
 
+#[derive(CandidType, Deserialize, Clone, PartialEq)]
+pub enum ProposalStatus {
+    Open,
+    Approved,
+    Rejected,
+    Executed,
+}
+
+#[derive(CandidType, Deserialize, Clone)]
+pub struct Proposal {
+    pub id: u64,
+    pub property_id: PropertyId,
+    pub proposer: Principal,
+    pub description: String,
+    pub status: ProposalStatus,
+    pub yes_votes: u64,
+    pub no_votes: u64,
+    pub votes: HashMap<Principal, bool>, // true = yes, false = no
+}
+
 thread_local! {
     static PROPERTIES: RefCell<HashMap<PropertyId, Property>> = RefCell::new(HashMap::new());
     static OWNERSHIP: RefCell<HashMap<(PropertyId, Principal), u64>> = RefCell::new(HashMap::new());
@@ -59,6 +79,8 @@ thread_local! {
     static ROLES: RefCell<HashMap<Principal, Role>> = RefCell::new(HashMap::new());
     static KYC: RefCell<HashMap<Principal, bool>> = RefCell::new(HashMap::new());
     static BOOTSTRAPPED: RefCell<bool> = RefCell::new(false);
+    static PROPOSALS: RefCell<HashMap<u64, Proposal>> = RefCell::new(HashMap::new());
+    static NEXT_PROPOSAL_ID: RefCell<u64> = RefCell::new(1);
 }
 
 fn get_role(principal: &Principal) -> Role {
@@ -333,4 +355,94 @@ pub fn transfer_shares(property_id: PropertyId, from: Principal, to: Principal, 
 #[query]
 pub fn get_marketplace_listings() -> Vec<Listing> {
     MARKETPLACE.with(|mp| mp.borrow().clone())
+}
+
+#[update]
+pub fn submit_proposal(property_id: PropertyId, description: String) -> Proposal {
+    let proposer = caller();
+    let id = NEXT_PROPOSAL_ID.with(|next| {
+        let mut next = next.borrow_mut();
+        let curr = *next;
+        *next += 1;
+        curr
+    });
+    let proposal = Proposal {
+        id,
+        property_id,
+        proposer,
+        description,
+        status: ProposalStatus::Open,
+        yes_votes: 0,
+        no_votes: 0,
+        votes: HashMap::new(),
+    };
+    PROPOSALS.with(|props| {
+        props.borrow_mut().insert(id, proposal.clone());
+    });
+    proposal
+}
+
+#[update]
+pub fn vote_on_proposal(proposal_id: u64, vote: bool) -> Result<String, String> {
+    let voter = caller();
+    let mut found = false;
+    PROPOSALS.with(|props| {
+        let mut props = props.borrow_mut();
+        if let Some(prop) = props.get_mut(&proposal_id) {
+            if prop.status != ProposalStatus::Open {
+                return;
+            }
+            if prop.votes.contains_key(&voter) {
+                return;
+            }
+            // Get voter's shares for the property
+            let shares = OWNERSHIP.with(|own| own.borrow().get(&(prop.property_id, voter)).cloned().unwrap_or(0));
+            if shares == 0 {
+                return;
+            }
+            prop.votes.insert(voter, vote);
+            if vote {
+                prop.yes_votes += shares;
+            } else {
+                prop.no_votes += shares;
+            }
+            found = true;
+        }
+    });
+    if found {
+        Ok("Vote recorded".to_string())
+    } else {
+        Err("Proposal not found, not open, already voted, or no shares".to_string())
+    }
+}
+
+#[update]
+pub fn execute_proposal(proposal_id: u64) -> Result<String, String> {
+    let mut result = Err("Proposal not found or not open".to_string());
+    PROPOSALS.with(|props| {
+        let mut props = props.borrow_mut();
+        if let Some(prop) = props.get_mut(&proposal_id) {
+            if prop.status != ProposalStatus::Open {
+                return;
+            }
+            // Simple majority
+            if prop.yes_votes > prop.no_votes {
+                prop.status = ProposalStatus::Approved;
+                // Here you could add logic to execute the proposal action
+                prop.status = ProposalStatus::Executed;
+                result = Ok("Proposal approved and executed".to_string());
+            } else {
+                prop.status = ProposalStatus::Rejected;
+                result = Ok("Proposal rejected".to_string());
+            }
+        }
+    });
+    result
+}
+
+#[query]
+pub fn get_proposals(property_id: PropertyId) -> Vec<Proposal> {
+    PROPOSALS.with(|props| {
+        props.borrow().values().filter(|p| p.property_id == property_id).cloned().collect()
+    })
 }
