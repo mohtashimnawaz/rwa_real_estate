@@ -58,6 +58,7 @@ thread_local! {
     static ADMINS: RefCell<Vec<Principal>> = RefCell::new(vec![Principal::anonymous()]);
     static ROLES: RefCell<HashMap<Principal, Role>> = RefCell::new(HashMap::new());
     static KYC: RefCell<HashMap<Principal, bool>> = RefCell::new(HashMap::new());
+    static BOOTSTRAPPED: RefCell<bool> = RefCell::new(false);
 }
 
 fn get_role(principal: &Principal) -> Role {
@@ -90,6 +91,19 @@ pub fn set_role(user: Principal, role: Role) -> Result<String, String> {
         roles.borrow_mut().insert(user, role);
     });
     Ok("Role updated".to_string())
+}
+
+#[update]
+pub fn bootstrap_admin(admin: Principal) -> Result<String, String> {
+    let already_bootstrapped = BOOTSTRAPPED.with(|b| *b.borrow());
+    if already_bootstrapped {
+        return Err("Admin already bootstrapped".to_string());
+    }
+    ROLES.with(|roles| {
+        roles.borrow_mut().insert(admin, Role::Admin);
+    });
+    BOOTSTRAPPED.with(|b| *b.borrow_mut() = true);
+    Ok("Admin bootstrapped".to_string())
 }
 
 #[query]

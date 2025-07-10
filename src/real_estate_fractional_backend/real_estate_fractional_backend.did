@@ -20,6 +20,7 @@ type Listing = record {
 type Role = variant { Admin; Manager; User; };
 
 service : {
+  bootstrap_admin : (principal) -> (variant { Ok : text; Err : text });
   register_property : (text, nat64, PropertyMetadata) -> (Property);
   update_property_metadata : (nat64, PropertyMetadata, principal) -> (variant { Ok : text; Err : text });
   update_property_status : (nat64, PropertyStatus, principal) -> (variant { Ok : text; Err : text });
