@@ -1,3 +1,16 @@
 service : {
-    "greet": (text) -> (text) query;
+  register_property : (text, nat64) -> (record {
+    id : nat64;
+    name : text;
+    total_shares : nat64;
+    shares_available : nat64;
+  });
+  issue_shares : (nat64, text, nat64) -> (variant { Ok : text; Err : text });
+  get_property : (nat64) -> (opt record {
+    id : nat64;
+    name : text;
+    total_shares : nat64;
+    shares_available : nat64;
+  });
+  get_ownership : (nat64, text) -> (nat64);
 }
